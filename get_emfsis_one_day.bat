@@ -72,6 +72,7 @@ for %%S in (%SPACECRAFT%) do (
   if exist "!URLLIST!" del /f /q "!URLLIST!" >nul 2>&1
 
   powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
     "$u='!DAYURL!'; $ymd='%YMD%'; $out='!URLLIST!';" ^
     "$r = Invoke-WebRequest -Uri $u -UseBasicParsing;" ^
     "$links = $r.Links | ForEach-Object { $_.href } | Where-Object { $_ -and ($_ -match '\.cdf$') } | Select-Object -Unique;" ^

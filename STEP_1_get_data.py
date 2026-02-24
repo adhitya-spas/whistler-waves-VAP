@@ -74,7 +74,7 @@ def check_available_files(
                 h5_candidates = [f for f in folder.glob("*.h5") if sc_prefix in f.name.lower() and magephem_model in f.name]
         
         results["magephem"][date_str] = {
-            "h5": max(h5_candidates, key=lambda p: tuple(map(int, p.stem.split("_v")[-1].split("."))))
+            "h5": max(h5_candidates, key=lambda p: tuple(map(int, p.stem.split("_v")[-1].split(".")))) if h5_candidates else None
         }
         current_date += timedelta(days=1)
     

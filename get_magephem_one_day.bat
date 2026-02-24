@@ -73,6 +73,7 @@ set "URLLIST=%TEMP%\magephem_urls_%BIRD%_%YMD%.txt"
 if exist "%URLLIST%" del /f /q "%URLLIST%" >nul 2>&1
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
   "$u='%YEARURL%'; $ymd='%YMD%'; $out='%URLLIST%';" ^
   "$r = Invoke-WebRequest -Uri $u -UseBasicParsing;" ^
   "$links = $r.Links | ForEach-Object { $_.href } | Where-Object { $_ -and ($_ -match $ymd) -and (($_ -match '\.h5$') -or ($_ -match '\.txt$')) } | Select-Object -Unique;" ^

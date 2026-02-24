@@ -35,8 +35,8 @@ ROOT_DIR = r"F:\UAF_Research"
 MAGEPHEM_MODEL = "T89D" #"T89D" #"OP77Q" #"T89Q" #"TS04D"
 
 # Time Range Configuration
-START_DATETIME = "2012-10-07 00:00:00"
-END_DATETIME = "2012-10-07 23:59:59"
+START_DATETIME = "2012-10-31 00:00:00"
+END_DATETIME = "2012-10-31 23:59:59"
 
 # Feature Flags & Display Options
 DEBUG_PLOT_CONTEXT = True               # show fce overlays, Kp/Dst, MagEphem context, Earth+L plots
