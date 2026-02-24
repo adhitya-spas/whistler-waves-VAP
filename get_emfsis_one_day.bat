@@ -67,41 +67,20 @@ for %%S in (%SPACECRAFT%) do (
   echo [INFO] Dest       : "!DEST!"
   echo.
 
-  REM --- extract matching file URLs from the directory index ---
-  set "URLLIST=%TEMP%\emfsis_urls_%%S_%YMD%.txt"
-  if exist "!URLLIST!" del /f /q "!URLLIST!" >nul 2>&1
+  REM --- download matching CDF files directly via wget spider ---
+  echo [INFO] Downloading EMFSIS L2 CDF files for %%S on %YMD%...
+  "%WGET%" -q --no-check-certificate -r -l1 -nd -np ^
+    -A "*.cdf" ^
+    -P "!DEST!" ^
+    "!DAYURL!"
 
-  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
-    "$u='!DAYURL!'; $ymd='%YMD%'; $out='!URLLIST!';" ^
-    "$r = Invoke-WebRequest -Uri $u -UseBasicParsing;" ^
-    "$links = $r.Links | ForEach-Object { $_.href } | Where-Object { $_ -and ($_ -match '\.cdf$') } | Select-Object -Unique;" ^
-    "if(-not $links){ exit 3 }" ^
-    "$urls = $links | ForEach-Object { if($_ -match '^https?://'){ $_ } else { $u + $_ } };" ^
-    "$urls | Set-Content -Encoding ascii -Path $out; exit 0"
-
-  if errorlevel 3 (
-    echo [WARN] No EMFSIS L2 CDF files found for %%S on %YMD% in the day index.
+  REM Check if any files were downloaded
+  dir /b "!DEST!\*.cdf" >nul 2>&1
+  if errorlevel 1 (
+    echo [WARN] No EMFSIS L2 CDF files downloaded for %%S on %YMD%.
   ) else (
-    echo [INFO] URLs to download:
-    type "!URLLIST!"
-    echo.
-
-    REM --- download each URL directly ---
-    set "DLFAIL=0"
-    for /f "usebackq delims=" %%U in ("!URLLIST!") do (
-      echo [INFO] wget %%U
-      "%WGET%" -c -nd -P "!DEST!" "%%U"
-      if errorlevel 1 set "DLFAIL=1"
-    )
-
-    echo.
-    if "!DLFAIL!"=="1" (
-      echo [ERROR] One or more downloads failed for %%S.
-    ) else (
-      echo [OK] Done. Downloaded files in:
-      dir /b "!DEST!\*.cdf" 2>nul
-    )
+    echo [OK] Done. Downloaded files in !DEST!:
+    dir /b "!DEST!\*.cdf"
   )
 
   echo Done: %%S

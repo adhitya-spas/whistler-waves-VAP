@@ -239,7 +239,7 @@ def read_emfisis_hfr_density_files(
     hysteresis_halfwidth: int = 7,
     disable_low_f_clip: bool = False,
 ) -> pd.DataFrame:
-    _TIME_CANDIDATES = ["Epoch", "epoch", "UTC", "Time", "time"]
+    _TIME_CANDIDATES = ["Epoch", "epoch", "UTC", "Time", "time", "Index", "index"]
     _SPEC_CANDIDATES = ["HFR_Spectra", "hfr_spectra", "Spectra", "spectra"]
     _FREQ_CANDIDATES = ["HFR_frequencies", "hfr_frequencies",
                         "HFR_Frequency", "Frequency", "frequencies", "freqs"]
@@ -261,19 +261,44 @@ def read_emfisis_hfr_density_files(
                     list(getattr(info, "rVariables", []) or [])
                 )
 
-                tvar = next((v for v in _TIME_CANDIDATES if v in names), None)
-                if tvar is None:
-                    print(f"[WARN] HFR: no time variable in {fp.name}, skipping")
-                    continue
-                raw_t = cdf.varget(tvar)
-                times = pd.to_datetime(cdfepoch.to_datetime(raw_t), utc=True)
-
                 spec_var = next((v for v in _SPEC_CANDIDATES if v in names), None)
                 freq_var = next((v for v in _FREQ_CANDIDATES if v in names), None)
                 if spec_var is None or freq_var is None:
                     print(f"[WARN] HFR: spectra/frequency variable not found in "
                           f"{fp.name} (vars: {sorted(names)}), skipping")
                     continue
+
+                # Resolve time variable: DEPEND_0 of spec_var first, then name search
+                tvar = None
+                try:
+                    dep0 = cdf.varattsget(spec_var).get("DEPEND_0")
+                    if isinstance(dep0, (list, tuple)):
+                        dep0 = dep0[0]
+                    if isinstance(dep0, (bytes, np.bytes_)):
+                        dep0 = dep0.decode("utf-8", errors="ignore")
+                    if dep0 and str(dep0).strip() in names:
+                        tvar = str(dep0).strip()
+                except Exception:
+                    pass
+                if tvar is None:
+                    tvar = next((v for v in _TIME_CANDIDATES if v in names), None)
+                if tvar is None:
+                    print(f"[WARN] HFR: no time variable in {fp.name}, skipping")
+                    continue
+
+                # Try candidates in order until one is readable
+                raw_t = None
+                for tv in [tvar] + [v for v in _TIME_CANDIDATES if v in names and v != tvar]:
+                    try:
+                        raw_t = cdf.varget(tv)
+                        tvar = tv
+                        break
+                    except ValueError:
+                        continue
+                if raw_t is None:
+                    print(f"[WARN] HFR: no readable time variable in {fp.name}, skipping")
+                    continue
+                times = pd.to_datetime(cdfepoch.to_datetime(raw_t), utc=True)
 
                 spectra = np.asarray(cdf.varget(spec_var), dtype=float)
                 freqs_hz = np.asarray(cdf.varget(freq_var), dtype=float).squeeze()

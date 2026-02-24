@@ -148,20 +148,30 @@ while current_date <= end_dt.date():
         # Actual filenames: *HFR-spectra-merged*.cdf (preferred) or *HFR-spectra*.cdf
         l2_folder = Path(ROOT_DIR) / sc / "L2" / f"{current_date:%Y}" / f"{current_date:%m}" / f"{current_date:%d}"
         hfr_merged = sorted(l2_folder.glob("*HFR-spectra-merged*.cdf"))
-        hfr_plain  = sorted(l2_folder.glob("*HFR-spectra*.cdf"))
-        hfr_plain  = [p for p in hfr_plain if "merged" not in p.name]  # exclude merged from fallback list
-        hfr_files  = hfr_merged if hfr_merged else hfr_plain
-        if hfr_files:
-            print(f"\nLoading {sc} HFR density for {date_str} ({len(hfr_files)} file(s))...")
-            try:
-                hfr_day = read_emfisis_hfr_density_files(hfr_files)
+        hfr_plain  = sorted(p for p in l2_folder.glob("*HFR-spectra*.cdf") if "merged" not in p.name)
+        hfr_all    = list(dict.fromkeys(hfr_merged + hfr_plain))  # merged first, deduplicated
+
+        if hfr_all:
+            print(f"\nLoading {sc} HFR density for {date_str} ({len(hfr_all)} file(s))...")
+            hfr_day   = None
+            remaining = list(hfr_all)
+            while remaining:
+                try:
+                    hfr_day = read_emfisis_hfr_density_files(remaining)
+                except Exception as e:
+                    print(f"  [WARN] HFR density ({sc}) {date_str}: {e}")
+                    hfr_day = None
                 if hfr_day is not None and len(hfr_day) > 0:
-                    hfr_dfs[sc][date_str] = hfr_day
-                    print(f"  Loaded HFR density ({sc}) {date_str}: {len(hfr_day)} samples, Ne range [{hfr_day['Ne_cm3'].min():.2g}, {hfr_day['Ne_cm3'].max():.2g}] cm^-3")
-                else:
-                    print(f"  [WARN] HFR density ({sc}) {date_str}: empty after read")
-            except Exception as e:
-                print(f"  [WARN] HFR density ({sc}) {date_str}: {e}")
+                    break
+                skipped = remaining.pop(0)
+                print(f"  [WARN] HFR: no data from {skipped.name}, retrying with {len(remaining)} remaining...")
+
+            if hfr_day is not None and len(hfr_day) > 0:
+                hfr_dfs[sc][date_str] = hfr_day
+                print(f"  Loaded HFR density ({sc}) {date_str}: {len(hfr_day)} samples, "
+                      f"Ne range [{hfr_day['Ne_cm3'].min():.2g}, {hfr_day['Ne_cm3'].max():.2g}] cm^-3")
+            else:
+                print(f"  [WARN] HFR density ({sc}) {date_str}: no usable data in any HFR file")
         else:
             print(f"  HFR density ({sc}) {date_str}: no files found in {l2_folder}")
         

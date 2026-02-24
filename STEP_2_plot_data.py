@@ -1118,10 +1118,16 @@ def plot_fce_context_from_magephem(
     tmax: str | None = None,
     b_prefix: str = "Bsc_gsm",
     hfr_df: pd.DataFrame | None = None,
-    title: str = r"Local cyclotron & plasma frequencies $f_{ce}$, $f_{pe}$",
+    title: str = "",
     legend_fontsize: float = 9,
     legend_framealpha: float = 1.0,
 ):
+    has_hfr = hfr_df is not None and not hfr_df.empty
+    if not title:
+        title = (r"Local cyclotron & plasma frequencies $f_{ce}$, $f_{pe}$"
+                 if has_hfr else r"Local cyclotron frequency $f_{ce}$")
+    ylabel = r"$f_{ce}$, $f_{pe}$ (kHz)" if has_hfr else r"$f_{ce}$ (kHz)"
+
     if magephem_df is None or len(magephem_df) == 0:
         ax.text(
             0.01, 0.5,
@@ -1129,7 +1135,7 @@ def plot_fce_context_from_magephem(
             transform=ax.transAxes, ha="left", va="center"
         )
         ax.set_title(title)
-        ax.set_ylabel(r"$f_{ce}$, $f_{pe}$ (kHz)")
+        ax.set_ylabel(ylabel)
         ax.grid(True, alpha=0.3)
         return ax
 
@@ -1164,7 +1170,7 @@ def plot_fce_context_from_magephem(
             transform=ax.transAxes, ha="left", va="center"
         )
         ax.set_title(title)
-        ax.set_ylabel(r"$f_{ce}$, $f_{pe}$ (kHz)")
+        ax.set_ylabel(ylabel)
         ax.grid(True, alpha=0.3)
         return ax
 
@@ -1178,7 +1184,7 @@ def plot_fce_context_from_magephem(
             transform=ax.transAxes, ha="left", va="center", fontsize=9
         )
         ax.set_title(title)
-        ax.set_ylabel(r"$f_{ce}$, $f_{pe}$ (kHz)")
+        ax.set_ylabel(ylabel)
         ax.grid(True, alpha=0.3)
         return ax
 
@@ -1190,7 +1196,7 @@ def plot_fce_context_from_magephem(
             transform=ax.transAxes, ha="left", va="center", fontsize=9
         )
         ax.set_title(title)
-        ax.set_ylabel(r"$f_{ce}$, $f_{pe}$ (kHz)")
+        ax.set_ylabel(ylabel)
         ax.grid(True, alpha=0.3)
         return ax
 
@@ -1210,7 +1216,7 @@ def plot_fce_context_from_magephem(
         )
     
     ax.set_title(title, fontsize=10)
-    ax.set_ylabel(r"Frequency (kHz)")
+    ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
     
     handles, labels = ax.get_legend_handles_labels()
