@@ -145,7 +145,7 @@ def read_emfisis_spectral_merged_files(
             if not fvar or fvar not in names:
                 continue
 
-            times = pd.to_datetime(cdfepoch.to_datetime(cdf.varget(tvar)), utc=True)
+            times = pd.to_datetime(cdfepoch.to_datetime(cdf.varget(tvar)), utc=True)  # type: ignore[arg-type]
             freqs = np.asarray(cdf.varget(fvar)).squeeze()
             data  = np.asarray(cdf.varget(spec_var)).squeeze()
 
@@ -217,7 +217,7 @@ def read_wfr_waveform_continuous_burst(
         if not tvar:
             raise RuntimeError(f"No valid time variable found in {cdf_path.name}")
 
-        times = pd.to_datetime(cdfepoch.to_datetime(cdf.varget(tvar)), utc=True)
+        times = pd.to_datetime(cdfepoch.to_datetime(cdf.varget(tvar)), utc=True)  # type: ignore[arg-type]
         data = np.asarray(cdf.varget(wvar))
         if data.ndim == 1:
             data = data.reshape(1, -1)
@@ -244,8 +244,7 @@ def read_emfisis_hfr_density_files(
     _FREQ_CANDIDATES = ["HFR_frequencies", "hfr_frequencies",
                         "HFR_Frequency", "Frequency", "frequencies", "freqs"]
     
-    # Kurth et al. 2015 constant: f_pe [Hz] = 8980 * sqrt(Ne [cm^-3])
-    FPE_CONVERSION_CONST = 8980.0  # Hz·cm^(-3/2)
+    FPE_CONVERSION_CONST = 8980.0  # Hz·cm^(-3/2) Kurth et al. 2015 constant
 
     frames = []
     for fp in hfr_files:
@@ -268,7 +267,6 @@ def read_emfisis_hfr_density_files(
                           f"{fp.name} (vars: {sorted(names)}), skipping")
                     continue
 
-                # Resolve time variable: DEPEND_0 of spec_var first, then name search
                 tvar = None
                 try:
                     dep0 = cdf.varattsget(spec_var).get("DEPEND_0")
@@ -286,7 +284,6 @@ def read_emfisis_hfr_density_files(
                     print(f"[WARN] HFR: no time variable in {fp.name}, skipping")
                     continue
 
-                # Try candidates in order until one is readable
                 raw_t = None
                 for tv in [tvar] + [v for v in _TIME_CANDIDATES if v in names and v != tvar]:
                     try:
@@ -298,7 +295,7 @@ def read_emfisis_hfr_density_files(
                 if raw_t is None:
                     print(f"[WARN] HFR: no readable time variable in {fp.name}, skipping")
                     continue
-                times = pd.to_datetime(cdfepoch.to_datetime(raw_t), utc=True)
+                times = pd.to_datetime(cdfepoch.to_datetime(raw_t), utc=True)  # type: ignore[arg-type]
 
                 spectra = np.asarray(cdf.varget(spec_var), dtype=float)
                 freqs_hz = np.asarray(cdf.varget(freq_var), dtype=float).squeeze()

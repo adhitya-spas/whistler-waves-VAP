@@ -21,7 +21,7 @@ from STEP_2_plot_data import (
     plot_emfsis_mlat_combined,
     plot_emfsis_waveform,
     plot_emfsis_waveform_broken_x,
-    plot_spacecraft_locations_meridional,
+    plot_spacecraft_locations_meridional_fig,
     plot_magephem_day_context,
     _fmt_ts,
 )
@@ -65,7 +65,7 @@ current_date = start_dt.date()
 # Initialize data storage containers
 magephem_dfs = {"RBSP-A": {}, "RBSP-B": {}}
 emfisis_wfr_dfs = {"RBSP-A": {}, "RBSP-B": {}}
-emfisis_freqs = {"RBSP-A": None, "RBSP-B": None}
+emfisis_freqs: dict[str, np.ndarray | None] = {"RBSP-A": None, "RBSP-B": None}
 waveform_data = {"RBSP-A": {}, "RBSP-B": {}}
 hfr_dfs       = {"RBSP-A": {}, "RBSP-B": {}}  # HFR electron density per day
 
@@ -302,7 +302,7 @@ for sc, res in [("RBSP-A", resA), ("RBSP-B", resB)]:
                         t_start_rec = t_rec_pd[0]
                         t_end_rec = t_rec_pd[-1]
                         brokenx_path = outdir / f"{sc}_{_fmt_ts(t_start_rec)}_{_fmt_ts(t_end_rec)}_waveform_brokenx.png"
-                    elif event_dt is not None and not pd.isna(event_dt):
+                    elif not pd.isna(event_dt):
                         brokenx_path = outdir / f"{sc}_{_fmt_ts(event_dt)}_waveform_brokenx.png"
                     else:
                         brokenx_path = None
@@ -334,7 +334,7 @@ for sc in ["RBSP-A", "RBSP-B"]:
         mage_combined = pd.concat(magephem_dfs[sc].values(), ignore_index=True)
         
         try:
-            plot_spacecraft_locations_meridional(
+            plot_spacecraft_locations_meridional_fig(
                 mage_combined,
                 start_utc=START_DATETIME,
                 end_utc=END_DATETIME,

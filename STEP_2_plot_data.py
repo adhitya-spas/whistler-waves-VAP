@@ -38,7 +38,7 @@ def plot_emfsis_waveform(
     outpath: str | None = None,
 ):
     t_rec = pd.to_datetime(times_records, utc=True)
-    if t_rec is None or len(t_rec) == 0:
+    if len(t_rec) == 0:
         print("[WARN] No waveform records available")
         return
     
@@ -84,7 +84,6 @@ def plot_emfsis_waveform(
     if magephem_df is not None and len(magephem_df) > 0:
         mage_meta = sample_magephem_at_time(magephem_df, event_dt)
     
-    # Build compact metadata line if available
     meta_parts = []
     if mage_meta.get("Lsimple"):
         meta_parts.append(f"L={mage_meta['Lsimple']:.2f}")
@@ -105,7 +104,6 @@ def plot_emfsis_waveform(
     
     metadata_line = "  ".join(meta_parts) if meta_parts else "(no MagEphem data)"
     
-    # Single plot layout (no secondary subplots)
     fig, ax_spec = plt.subplots(figsize=figsize, constrained_layout=False)
     
     # Plot spectrogram
@@ -116,38 +114,43 @@ def plot_emfsis_waveform(
     if show_fce and magephem_df is not None and len(magephem_df) > 0:
         try:
             mdf = _magephem_index(magephem_df)
-            j = mdf.index.get_indexer([event_dt], method="nearest")[0]
-            bmag_nT = _get_bmag_from_magephem(mdf.loc[[mdf.index[j]]], b_prefix="Bsc_gsm").iloc[0]
+            t_unix = mdf.index.astype("int64").to_numpy() / 1e9
+            t_sec  = event_dt.timestamp()
+            def _interp_col(col):
+                vals = pd.to_numeric(mdf[col], errors="coerce").to_numpy(dtype=float)
+                return float(np.interp(t_sec, t_unix, vals))
+            if all(c in mdf.columns for c in ("Bsc_gsm_0", "Bsc_gsm_1", "Bsc_gsm_2")):
+                bmag_nT = float(np.sqrt(
+                    _interp_col("Bsc_gsm_0")**2 +
+                    _interp_col("Bsc_gsm_1")**2 +
+                    _interp_col("Bsc_gsm_2")**2
+                ))
+            else:
+                j = mdf.index.get_indexer(pd.DatetimeIndex([event_dt]), method="nearest")[0]
+                bmag_nT = _get_bmag_from_magephem(mdf.loc[[mdf.index[j]]], b_prefix="Bsc_gsm").iloc[0]
             fce_khz = _FCE_KHZ_PER_NT * bmag_nT
             
-            # Frequency range for this plot (in kHz)
             f_max_khz = fmax_hz / 1e3
             
             if 0 < fce_khz <= f_max_khz:
-                # fce is within the plotted range: draw with high visibility
-                # Use white line with black stroke outline (path effects) for contrast over colormap
                 line = ax_spec.axhline(fce_khz, color='white', linestyle="-", linewidth=2.0, alpha=0.9, 
                                        label=r"$f_{ce} = {fce_khz:.2f} kHz$", zorder=10)
-                # Add black stroke effect to make white line stand out
                 line.set_path_effects([Stroke(linewidth=3, foreground='black'), Normal()])
                 ax_spec.legend(loc="upper right", fontsize=8, framealpha=0.8)
                 print(f"  fce = {fce_khz:.2f} kHz (in band)")
             else:
-                # fce is outside the plotted range: add note instead 
                 fce_note = f"(fce = {fce_khz:.1f} kHz, out of range)"
                 print(f"  fce = {fce_khz:.2f} kHz (out of band)")
         except Exception as e:
-            # Silently skip fce overlay if it fails
             pass
     
     ax_spec.set_xlim(0, duration_s)
-    ax_spec.set_ylim(0.01, fmax_hz / 1e3)  # Convert to kHz (keep fixed)
+    ax_spec.set_ylim(0.01, fmax_hz / 1e3)
     ax_spec.set_xlabel("Time (s)")
     ax_spec.set_ylabel("Frequency (kHz)")
     
     fig.suptitle("EMFISIS Waveform Spectrogram", fontsize=14, fontweight="bold", y=0.98)
     
-    # Set title with compact metadata subtitle
     title_with_meta = f"{header}\n{metadata_line}"
     ax_spec.set_title(title_with_meta, fontsize=10, pad=10)
     
@@ -262,7 +265,6 @@ def plot_magephem_day_context(
             ax2.axvline(bt, color='red', linewidth=0.8, alpha=0.5, linestyle='-', zorder=5)
             ax3.axvline(bt, color='red', linewidth=0.8, alpha=0.5, linestyle='-', zorder=5)
     
-    # Rotate x-axis labels on all subplots for readability
     for ax in fig.get_axes():
         ax.tick_params(axis='x', rotation=45)
     
@@ -270,7 +272,7 @@ def plot_magephem_day_context(
     
     plt.show()
 
-def plot_spacecraft_locations_meridional(
+def plot_spacecraft_locations_meridional_fig(
     magephem_df: pd.DataFrame,
     start_utc: str,
     end_utc: str,
@@ -281,7 +283,8 @@ def plot_spacecraft_locations_meridional(
     ylim=(-2.5, 2.5),
 ):
     """
-    Plot true spacecraft locations from MagEphem in a meridional-plane proxy:
+    Standalone figure version: plot spacecraft locations from MagEphem in a
+    meridional-plane proxy (creates its own figure).
       x = sqrt(Rsm_0^2 + Rsm_1^2)  (Re)
       z = Rsm_2                    (Re)
     """
@@ -293,44 +296,47 @@ def plot_spacecraft_locations_meridional(
     if win.empty:
         raise ValueError("No MagEphem samples in requested time window.")
 
-    # true spacecraft points (Re)
     x = np.sqrt(win["Rsm_0"].to_numpy()**2 + win["Rsm_1"].to_numpy()**2)
     z = win["Rsm_2"].to_numpy()
 
     fig, ax = plt.subplots(figsize=(8.5, 5))
 
-    # Earth + ionosphere ring
     ax.add_patch(Circle((0,0), 1.0, fill=False, lw=2))
     r_iono = 1.0 + 90.0/RE_KM
     ax.add_patch(Circle((0,0), r_iono, fill=False, lw=1))
 
-    # optional L-shells (dashed)
     L_handles = []
     for L in plot_Lshells:
         xl, zl = _dipole_fieldline(float(L))
         h, = ax.plot(xl, zl, "--", lw=1)
         L_handles.append((h, f"L = {L:g}"))
-    # track
     ax.plot(x, z, ".", markersize=2, label=f"{spacecraft} track")
 
-    # mark event time
     if event_utc is not None:
         te = pd.to_datetime(event_utc, utc=True)
-        # nearest point
-        i = win.index.get_indexer([te], method="nearest")[0]
-        ax.plot([x[i]], [z[i]], marker="*", markersize=14, label="event")
+        r0_e = _interp_magephem_col(win, "Rsm_0", te)
+        r1_e = _interp_magephem_col(win, "Rsm_1", te)
+        r2_e = _interp_magephem_col(win, "Rsm_2", te)
+        if r0_e is not None and r1_e is not None and r2_e is not None:
+            x_e   = float(np.sqrt(r0_e**2 + r1_e**2))
+            z_e   = float(r2_e)
+            alt_km = (float(np.sqrt(r0_e**2 + r1_e**2 + r2_e**2)) - 1.0) * RE_KM
+        else:
+            i = win.index.get_indexer([te], method="nearest")[0]
+            x_e, z_e = x[i], z[i]
+            row = win.iloc[i]
+            alt_km = (np.sqrt(row["Rsm_0"]**2 + row["Rsm_1"]**2 + row["Rsm_2"]**2) - 1.0) * RE_KM
+        ax.plot([x_e], [z_e], marker="*", markersize=14, label="event")
 
-        # header info
-        row = win.iloc[i]
-        alt_km = (np.sqrt(row["Rsm_0"]**2 + row["Rsm_1"]**2 + row["Rsm_2"]**2) - 1.0) * RE_KM
-        Ls = float(row["Lsimple"]) if "Lsimple" in row else np.nan
-        mlat = float(row["CDMAG_MLAT"]) if "CDMAG_MLAT" in row else np.nan
-        mlt  = float(row["CDMAG_MLT"]) if "CDMAG_MLT" in row else np.nan
+        meta_ev = sample_magephem_at_time(win, te)
+        Ls   = meta_ev.get("Lsimple")
+        mlat = meta_ev.get("CDMAG_MLAT")
+        mlt  = meta_ev.get("CDMAG_MLT")
 
         title = f"{spacecraft}  {te.strftime('%d %b %Y %H:%M:%S UT')}  Alt={alt_km:,.0f} km"
-        if np.isfinite(Ls):   title += f"  L={Ls:.2f}"
-        if np.isfinite(mlat): title += f"  λm={mlat:.1f}°"
-        if np.isfinite(mlt):  title += f"  MLT={mlt:.1f}"
+        if Ls   is not None and np.isfinite(Ls):   title += f"  L={Ls:.2f}"
+        if mlat is not None and np.isfinite(mlat): title += f"  λm={mlat:.1f}°"
+        if mlt  is not None and np.isfinite(mlt):  title += f"  MLT={mlt:.1f}"
         ax.set_title(title)
     else:
         ax.set_title(f"{spacecraft}  {t0.strftime('%d %b %Y')} {t0.strftime('%H:%M')}–{t1.strftime('%H:%M')} UT")
@@ -381,7 +387,6 @@ def plot_emfsis_waveform_broken_x(
         clusters = clusters[:max_panels-1] + [(clusters[max_panels-1][0], clusters[-1][1])]
     n_panels = len(clusters)
 
-    # Pre-compute PSD for all records to determine global vmin/vmax (with robust percentiles)
     all_psd_values = []
     for i in range(Nrec):
         w_sel = np.asarray(w[i], dtype=float).flatten()
@@ -401,7 +406,6 @@ def plot_emfsis_waveform_broken_x(
             Z_log = np.log10(Z)
             all_psd_values.extend(Z_log.flatten())
     
-    # Use robust percentiles to avoid outliers
     if all_psd_values:
         global_vmin = np.nanpercentile(all_psd_values, 5)
         global_vmax = np.nanpercentile(all_psd_values, 99.5)
@@ -456,9 +460,8 @@ def plot_emfsis_waveform_broken_x(
 
             x0 = (t_rec[i] - t0).total_seconds()
             x = x0 + t_sec
-            y = f_hz[mask] / 1000.0  # kHz
+            y = f_hz[mask] / 1000.0
 
-            # Use global vmin/vmax for consistent color scale
             im = ax.pcolormesh(x, y, Zlog, shading="auto", cmap=cmap, vmin=global_vmin, vmax=global_vmax)
 
         ax.set_ylim(0.01, fmax_hz / 1000.0)
@@ -466,7 +469,6 @@ def plot_emfsis_waveform_broken_x(
         ax.set_xlabel("Time (s)")
         ax.set_title(f"{t0.strftime('%H:%M:%S')} UT (N={n_in_panel})", fontsize=10)
 
-        # broken-axis diagonal marks
         d = 0.015
         if pi > 0:
             kwargs = dict(transform=ax.transAxes, color="k", clip_on=False, linewidth=1.3)
@@ -482,7 +484,7 @@ def plot_emfsis_waveform_broken_x(
     fig.suptitle(f"EMFISIS Waveform Spectrogram ({spacecraft} {component})",fontsize=18, y=0.98)
     fig.subplots_adjust(left=0.05, right=0.88, bottom=0.12, top=0.88, wspace=0.05)
     if im is not None:
-        cax = fig.add_axes([0.90, 0.12, 0.025, 0.76])
+        cax = fig.add_axes((0.90, 0.12, 0.025, 0.76))
         cbar = fig.colorbar(im, cax=cax, orientation="vertical")
 
         ticks = [-13, -11, -9, -7]
@@ -590,7 +592,7 @@ def plot_emfsis_mlat_combined(
     fig.canvas.draw()
     p_storm = ax_storm.get_position()
     p_fce   = ax_fce.get_position()
-    ax_fce.set_position([p_fce.x0, p_storm.y0 - p_fce.height, p_fce.width, p_fce.height])
+    ax_fce.set_position((p_fce.x0, p_storm.y0 - p_fce.height, p_fce.width, p_fce.height))
 
     im = ax_spec.pcolormesh(t_spec, f_khz, Z.T, shading="auto")
     ax_spec.set_ylabel("Frequency (kHz)")
@@ -598,26 +600,29 @@ def plot_emfsis_mlat_combined(
 
     header = f"{spacecraft}   {t_spec[0].strftime('%d %b %Y  %H:%M:%S UT')}"
     try:
-        j = mdf.index.get_indexer([t_spec[0]], method="nearest")[0]
-        row = mdf.iloc[j]
+        t0_hdr = t_spec[0]
+        meta = sample_magephem_at_time(mdf, t0_hdr)
+        rsm0 = _interp_magephem_col(mdf, "Rsm_0", t0_hdr)
+        rsm1 = _interp_magephem_col(mdf, "Rsm_1", t0_hdr)
+        rsm2 = _interp_magephem_col(mdf, "Rsm_2", t0_hdr)
         alt = None
-        if all(c in row.index for c in ("Rsm_0", "Rsm_1", "Rsm_2")):
-            r_re = float(np.sqrt(row["Rsm_0"]**2 + row["Rsm_1"]**2 + row["Rsm_2"]**2))
-            alt = (r_re - 1.0) * RE_KM
+        if rsm0 is not None and rsm1 is not None and rsm2 is not None:
+            alt = (float(np.sqrt(rsm0**2 + rsm1**2 + rsm2**2)) - 1.0) * RE_KM
 
-        parts = [spacecraft, t_spec[0].strftime("%d %b %Y %H:%M:%S UT")]
+        parts = [spacecraft, t0_hdr.strftime("%d %b %Y %H:%M:%S UT")]
         if alt is not None:
             parts.append(f"Altitude = {alt:,.0f} km")
-        if "Lsimple" in row.index:
-            parts.append(f"L = {float(row['Lsimple']):.2f}")
-        if "CDMAG_MLAT" in row.index:
-            parts.append(f"λm = {float(row['CDMAG_MLAT']):.1f}°")
+        if meta.get("Lsimple") is not None:
+            parts.append(f"L = {meta['Lsimple']:.2f}")
+        if meta.get("CDMAG_MLAT") is not None:
+            parts.append(f"λm = {meta['CDMAG_MLAT']:.1f}°")
         for cand in ("CDMAG_MLON", "CDMAG_MLON360", "CDMAG_GLON", "CDMAG_LON"):
-            if cand in row.index:
-                parts.append(f"ϕm = {float(row[cand]):.1f}°")
+            v = _interp_magephem_col(mdf, cand, t0_hdr)
+            if v is not None:
+                parts.append(f"ϕm = {v:.1f}°")
                 break
-        if "CDMAG_MLT" in row.index:
-            parts.append(f"MLT = {float(row['CDMAG_MLT']):.1f}")
+        if meta.get("CDMAG_MLT") is not None:
+            parts.append(f"MLT = {meta['CDMAG_MLT']:.1f}")
         header = "   ".join(parts)
     except Exception:
         pass
@@ -690,12 +695,12 @@ def plot_emfsis_mlat_combined(
             mlat_v = mlat[valid].to_numpy() if mlat is not None else None
 
             theta = 2.0 * np.pi * (mlt_v / 24.0)
-            ax_orbit.set_theta_zero_location("N")
-            ax_orbit.set_theta_direction(-1)
+            ax_orbit.set_theta_zero_location("N")  # type: ignore[attr-defined]
+            ax_orbit.set_theta_direction(-1)  # type: ignore[attr-defined]
 
             earth_r = 1.0
             
-            earth_disk = Circle((0, 0), earth_r, transform=ax_orbit.transData._b,
+            earth_disk = Circle((0, 0), earth_r, transform=ax_orbit.transData._b,  # type: ignore[attr-defined]
                               fill=True, facecolor="0.85", edgecolor="0.4", linewidth=1.5, zorder=0)
             ax_orbit.add_patch(earth_disk)
             
@@ -703,7 +708,7 @@ def plot_emfsis_mlat_combined(
                 (0, 0), earth_r,
                 theta1=0.0,
                 theta2=180.0,
-                transform=ax_orbit.transData._b,
+                transform=ax_orbit.transData._b,  # type: ignore[attr-defined]
                 facecolor="0.35",
                 alpha=0.6,
                 edgecolor="none",
@@ -715,7 +720,7 @@ def plot_emfsis_mlat_combined(
                 (0, 0), earth_r,
                 theta1=180.0,
                 theta2=360.0,
-                transform=ax_orbit.transData._b,
+                transform=ax_orbit.transData._b,  # type: ignore[attr-defined]
                 facecolor="1.0",
                 alpha=0.15,
                 edgecolor="none",
@@ -731,13 +736,13 @@ def plot_emfsis_mlat_combined(
                 ax_orbit.scatter(theta, L_v, s=8, alpha=0.8, edgecolor="none")
 
             for Lref in [2, 3, 4, 5, 6]:
-                circ = plt.Circle((0, 0), Lref, transform=ax_orbit.transData._b,
-                                  fill=False, edgecolor="0.7", linestyle="--", linewidth=0.8, alpha=0.7)
+                circ = Circle((0, 0), Lref, transform=ax_orbit.transData._b,  # type: ignore[attr-defined]
+                              fill=False, edgecolor="0.7", linestyle="--", linewidth=0.8, alpha=0.7)
                 ax_orbit.add_artist(circ)
 
 
-            ax_orbit.set_rmin(0)
-            ax_orbit.set_rmax(max(6, np.nanmax(L_v) * 1.05))
+            ax_orbit.set_rmin(0)  # type: ignore[attr-defined]
+            ax_orbit.set_rmax(max(6, np.nanmax(L_v) * 1.05))  # type: ignore[attr-defined]
 
             ax_orbit.set_xticks(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315]))
             ax_orbit.set_xticklabels(["00\n(Midnight)", "03", "06\n(Dawn)", "09",
@@ -748,11 +753,11 @@ def plot_emfsis_mlat_combined(
                 for bt in burst_dt:
                     if bt < mdf_win.index.min() or bt > mdf_win.index.max():
                         continue
-                    ii = int(mdf_win.index.get_indexer([bt], method="nearest")[0])
-                    rr = mdf_win.iloc[ii]
                     try:
-                        b_mlt = float(rr["CDMAG_MLT"])
-                        b_L   = float(rr["Lsimple"])
+                        b_mlt = _interp_magephem_col(mdf_win, "CDMAG_MLT", bt)
+                        b_L   = _interp_magephem_col(mdf_win, "Lsimple", bt)
+                        if b_mlt is None or b_L is None:
+                            continue
                         th = 2.0 * np.pi * (b_mlt / 24.0)
                         ax_orbit.plot([th], [b_L], marker="o", markersize=6,
                                       color="red", alpha=0.9, zorder=10,
@@ -845,6 +850,21 @@ def _magephem_index(df: pd.DataFrame) -> pd.DataFrame:
     out = out.dropna().sort_index()
     return out
 
+def _interp_magephem_col(df: pd.DataFrame, col: str, t: pd.Timestamp) -> float | None:
+    """Linearly interpolate a single MagEphem column to timestamp t.
+    df must already have a UTC DatetimeIndex (call _magephem_index first).
+    """
+    if col not in df.columns:
+        return None
+    try:
+        t_unix = df.index.astype("int64").to_numpy() / 1e9
+        vals = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+        v = float(np.interp(t.timestamp(), t_unix, vals))
+        return v if np.isfinite(v) else None
+    except Exception:
+        return None
+
+
 def _nearest_row_by_utc(mage_df: pd.DataFrame, utc_dt) -> tuple[pd.Series | None, int | None]:
     if mage_df is None or len(mage_df) == 0:
         return None, None
@@ -883,115 +903,69 @@ def _nearest_row_by_utc(mage_df: pd.DataFrame, utc_dt) -> tuple[pd.Series | None
 def sample_magephem_at_time(mage_df: pd.DataFrame, t_iso_or_datetime):
     if mage_df is None or len(mage_df) == 0:
         return {}
-    
-    row, _ = _nearest_row_by_utc(mage_df, t_iso_or_datetime)
-    if row is None:
+
+    dt = pd.to_datetime(t_iso_or_datetime, utc=True, errors="coerce")
+    if pd.isna(dt):
         return {}
-    
+
+    # Normalise to a UTC DatetimeIndex
+    df = _magephem_index(mage_df)
+    if df is None or df.empty:
+        return {}
+
+    t_unix = df.index.astype("int64").to_numpy() / 1e9
+    t_sec  = dt.timestamp()
+
+    nearest_idx = int(np.argmin(np.abs(df.index - dt)))
+    row = df.iloc[nearest_idx]
+
+    def _interp(col: str):
+        """Linearly interpolate a single numeric column; return None on failure."""
+        if col not in df.columns:
+            return None
+        try:
+            vals = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+            v = float(np.interp(t_sec, t_unix, vals))
+            return v if np.isfinite(v) else None
+        except Exception:
+            return None
+
     result = {}
-    
-    # Time
+
     if "IsoTime" in row.index:
         result["IsoTime"] = row["IsoTime"]
-    
-    # L-shell proxies
-    if "Lsimple" in row.index:
-        try:
-            result["Lsimple"] = float(row["Lsimple"])
-        except:
-            result["Lsimple"] = None
-    
-    # Position
-    if "CDMAG_MLAT" in row.index:
-        try:
-            result["CDMAG_MLAT"] = float(row["CDMAG_MLAT"])
-        except:
-            result["CDMAG_MLAT"] = None
-    
-    if "CDMAG_MLT" in row.index:
-        try:
-            result["CDMAG_MLT"] = float(row["CDMAG_MLT"])
-        except:
-            result["CDMAG_MLT"] = None
-    
-    # In/Out magnetosphere
-    if "InOut" in row.index:
-        try:
-            result["InOut"] = int(row["InOut"])
-        except:
-            result["InOut"] = None
-    
-    # Compute |B| from Bsc_gsm components, with fallbacks
-    bmag = None
-    if all(c in row.index for c in ("Bsc_gsm_0", "Bsc_gsm_1", "Bsc_gsm_2")):
-        try:
-            bx = float(row["Bsc_gsm_0"])
-            by = float(row["Bsc_gsm_1"])
-            bz = float(row["Bsc_gsm_2"])
-            bmag = np.sqrt(bx**2 + by**2 + bz**2)
-        except:
-            pass
-    if bmag is None or not np.isfinite(bmag):
-        if "Bsc_gsm_3" in row.index:
-            try:
-                bmag = float(row["Bsc_gsm_3"])
-            except:
-                pass
-    result["Bmag"] = bmag
-    
-    # Field geometry
-    if "BoverBeq" in row.index:
-        try:
-            result["BoverBeq"] = float(row["BoverBeq"])
-        except:
-            result["BoverBeq"] = None
-    
-    # Loss cone angles
-    if "Loss_Cone_Alpha_n" in row.index:
-        try:
-            result["Loss_Cone_Alpha_n"] = float(row["Loss_Cone_Alpha_n"])
-        except:
-            result["Loss_Cone_Alpha_n"] = None
-    
-    if "Loss_Cone_Alpha_s" in row.index:
-        try:
-            result["Loss_Cone_Alpha_s"] = float(row["Loss_Cone_Alpha_s"])
-        except:
-            result["Loss_Cone_Alpha_s"] = None
-    
-    # Curvature
-    if "RadiusOfCurv" in row.index:
-        try:
-            result["RadiusOfCurv"] = float(row["RadiusOfCurv"])
-        except:
-            result["RadiusOfCurv"] = None
-    
-    if "d2B_ds2" in row.index:
-        try:
-            result["d2B_ds2"] = float(row["d2B_ds2"])
-        except:
-            result["d2B_ds2"] = None
-    
-    # Geomagnetic indices
-    if "Kp" in row.index:
-        try:
-            result["Kp"] = float(row["Kp"])
-        except:
-            result["Kp"] = None
-    
-    if "Dst" in row.index:
-        try:
-            result["Dst"] = float(row["Dst"])
-        except:
-            result["Dst"] = None
-    
-    if "DipoleTiltAngle" in row.index:
-        try:
-            result["DipoleTiltAngle"] = float(row["DipoleTiltAngle"])
-        except:
-            result["DipoleTiltAngle"] = None
-    
-    return result
+
+    result["Lsimple"] = _interp("Lsimple")
+
+    result["CDMAG_MLAT"] = _interp("CDMAG_MLAT")
+    result["CDMAG_MLT"]  = _interp("CDMAG_MLT")
+
+    v_inout = _interp("InOut")
+    result["InOut"] = int(round(v_inout)) if v_inout is not None else None
+
+    bx = _interp("Bsc_gsm_0")
+    by = _interp("Bsc_gsm_1")
+    bz = _interp("Bsc_gsm_2")
+    if bx is not None and by is not None and bz is not None:
+        bmag = float(np.sqrt(bx**2 + by**2 + bz**2))
+        result["Bmag"] = bmag if np.isfinite(bmag) else None
+    else:
+        # fallback: try pre-computed magnitude column
+        result["Bmag"] = _interp("Bsc_gsm_3")
+
+    result["BoverBeq"] = _interp("BoverBeq")
+
+    result["Loss_Cone_Alpha_n"] = _interp("Loss_Cone_Alpha_n")
+    result["Loss_Cone_Alpha_s"] = _interp("Loss_Cone_Alpha_s")
+
+    result["RadiusOfCurv"] = _interp("RadiusOfCurv")
+    result["d2B_ds2"]       = _interp("d2B_ds2")
+
+    result["Kp"]              = _interp("Kp")
+    result["Dst"]             = _interp("Dst")
+    result["DipoleTiltAngle"] = _interp("DipoleTiltAngle")
+
+    return {k: v for k, v in result.items() if v is not None}
 
 def plot_storm_context_from_magephem(
     ax,
@@ -1004,7 +978,6 @@ def plot_storm_context_from_magephem(
 
     df = magephem_df.copy()
 
-    # Ensure UTC DatetimeIndex
     if "IsoTime" in df.columns:
         t = pd.to_datetime(df["IsoTime"], utc=True, errors="coerce")
         df = df.loc[t.notna()].copy()
@@ -1033,7 +1006,6 @@ def plot_storm_context_from_magephem(
     if df.empty:
         return ax, None
 
-    # Extract series (robust to missing)
     dst = None
     kp = None
     if "Dst" in df.columns:
@@ -1041,7 +1013,6 @@ def plot_storm_context_from_magephem(
     if "Kp" in df.columns:
         kp = pd.to_numeric(df["Kp"], errors="coerce").dropna()
 
-    # Compute bar width for Kp (auto-detect from time spacing)
     bar_width = None
     if kp is not None and len(kp) > 1:
         dt_median = np.median(np.diff(kp.index.view('int64'))) / 1e9 / 3600.0  # hours
@@ -1054,11 +1025,9 @@ def plot_storm_context_from_magephem(
         kp_max = max(9, int(np.ceil(kp.max())))
         ax.set_ylim(0, kp_max)
         ax.set_yticks([0, 2, 4, 6, 8])
-        # Minimal styling: no grid, clean spines
         ax.spines["top"].set_visible(True)
         ax.spines["right"].set_visible(False)
         ax.tick_params(axis='both', which='major', direction='out', length=4, width=0.8)
-        # Label inside panel
         ax.text(0.02, 0.92, "Kp", transform=ax.transAxes, fontsize=12, color="0.3", 
                 verticalalignment="top", fontweight="bold")
 
@@ -1067,19 +1036,15 @@ def plot_storm_context_from_magephem(
     if dst is not None and len(dst) > 0:
         ax2.plot(dst.index, dst, color="k", linewidth=1.3)
         ax2.set_ylabel("Dst (nT)", fontsize=11)
-        # Set y-limits: positive at top, negative at bottom (standard orientation)
         dst_min = dst.min()
         dst_max = dst.max()
-        # Clamp to reasonable range
         ylim_bottom = max(-150, int(np.floor(dst_min / 50)) * 50 - 10)
         ylim_top = min(50, int(np.ceil(dst_max / 50)) * 50 + 10)
         ax2.set_ylim(ylim_bottom, ylim_top)
         ax2.set_yticks([50, 0, -50, -100])
-        # Clean spines
         ax2.spines["top"].set_visible(True)
         ax2.spines["left"].set_visible(False)
         ax2.tick_params(axis='both', which='major', direction='out', length=4, width=0.8)
-        # Label inside panel
         ax2.text(0.98, 0.92, "Dst", transform=ax2.transAxes, fontsize=12, color="k", 
                  verticalalignment="top", horizontalalignment="right", fontweight="bold")
 
@@ -1105,8 +1070,10 @@ def _get_bmag_from_magephem(df: pd.DataFrame, b_prefix: str = "Bsc_gsm") -> pd.S
         bx = pd.to_numeric(df[c0], errors="coerce")
         by = pd.to_numeric(df[c1], errors="coerce")
         bz = pd.to_numeric(df[c2], errors="coerce")
-        bmag = np.sqrt(bx**2 + by**2 + bz**2)
-        bmag = bmag.replace([np.inf, -np.inf], np.nan)
+        bmag = pd.Series(np.where(np.isinf(np.sqrt(bx**2 + by**2 + bz**2)),
+                                  np.nan,
+                                  np.sqrt(bx**2 + by**2 + bz**2)),
+                         index=df.index)
         return bmag
 
     raise KeyError(f"Could not find {mag_col} or {b_prefix}_0..2 in MagEphem columns.")
@@ -1157,7 +1124,6 @@ def plot_fce_context_from_magephem(
             df.index = df.index.tz_convert("UTC")
     df = df.sort_index()
 
-    # Optional crop
     if tmin is not None:
         df = df[df.index >= pd.to_datetime(tmin, utc=True)]
     if tmax is not None:
@@ -1174,7 +1140,6 @@ def plot_fce_context_from_magephem(
         ax.grid(True, alpha=0.3)
         return ax
 
-    # Compute |B| from Bsc_gsm_*
     try:
         bmag_nT = _get_bmag_from_magephem(df, b_prefix=b_prefix)
     except Exception as e:
@@ -1247,14 +1212,12 @@ def plot_fpe_context_from_hfr(
 
     df = hfr_df.copy()
 
-    # Ensure UTC DatetimeIndex
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index, utc=True, errors="coerce")
     elif df.index.tz is None:
         df.index = df.index.tz_localize("UTC")
     df = df.sort_index()
 
-    # Window to the requested time range
     t0 = pd.to_datetime(tmin, utc=True, errors="coerce")
     t1 = pd.to_datetime(tmax, utc=True, errors="coerce")
     if not pd.isna(t0):
@@ -1268,11 +1231,9 @@ def plot_fpe_context_from_hfr(
     fpe_khz = None
     
     if fpe_col is not None and fpe_col in df.columns:
-        # User provided column (expected in Hz)
         fpe_hz = df[fpe_col].to_numpy()
         fpe_khz = fpe_hz / 1e3
     elif "f_pe_hz" in df.columns:
-        # New Kurth-correct column from HFR reader
         fpe_hz = df["f_pe_hz"].to_numpy()
         fpe_khz = fpe_hz / 1e3
     elif ne_col in df.columns:
@@ -1319,7 +1280,6 @@ def plot_spacecraft_locations_meridional(
     if win.empty:
         raise ValueError("No MagEphem samples in requested time window.")
 
-    # true spacecraft points (Re)
     x = np.sqrt(win["Rsm_0"].to_numpy()**2 + win["Rsm_1"].to_numpy()**2)
     z = win["Rsm_2"].to_numpy()
 
@@ -1346,9 +1306,16 @@ def plot_spacecraft_locations_meridional(
 
     if event_utc is not None:
         te = pd.to_datetime(event_utc, utc=True)
-        # nearest point
-        i = win.index.get_indexer([te], method="nearest")[0]
-        ax.plot([x[i]], [z[i]], marker="*", markersize=14, color="red", label="event", zorder=10)
+        r0_e = _interp_magephem_col(win, "Rsm_0", te)
+        r1_e = _interp_magephem_col(win, "Rsm_1", te)
+        r2_e = _interp_magephem_col(win, "Rsm_2", te)
+        if r0_e is not None and r1_e is not None and r2_e is not None:
+            x_e = float(np.sqrt(r0_e**2 + r1_e**2))
+            z_e = float(r2_e)
+        else:
+            i = win.index.get_indexer([te], method="nearest")[0]
+            x_e, z_e = x[i], z[i]
+        ax.plot([x_e], [z_e], marker="*", markersize=14, color="red", label="event", zorder=10)
 
 
     if burst_times is not None:
@@ -1359,10 +1326,13 @@ def plot_spacecraft_locations_meridional(
                 if bt < win.index.min() or bt > win.index.max():
                     continue
                 try:
-                    ii = int(win.index.get_indexer([bt], method="nearest")[0])
-                    rr = win.iloc[ii]
-                    b_x = np.sqrt(float(rr["Rsm_0"])**2 + float(rr["Rsm_1"])**2)
-                    b_z = float(rr["Rsm_2"])
+                    r0 = _interp_magephem_col(win, "Rsm_0", bt)
+                    r1 = _interp_magephem_col(win, "Rsm_1", bt)
+                    r2 = _interp_magephem_col(win, "Rsm_2", bt)
+                    if r0 is None or r1 is None or r2 is None:
+                        continue
+                    b_x = float(np.sqrt(r0**2 + r1**2))
+                    b_z = float(r2)
                     ax.plot([b_x], [b_z], marker="o", markersize=6,
                             color="red", alpha=0.9, zorder=10,
                             markeredgecolor="white", markeredgewidth=0.6)
