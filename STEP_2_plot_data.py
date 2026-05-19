@@ -109,41 +109,6 @@ def plot_emfsis_waveform(
     # Plot spectrogram
     im = ax_spec.pcolormesh(t_plot, f_plot, Z_log, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
     
-    # Optional fce overlay on waveform spectrogram
-    fce_note = None
-    if show_fce and magephem_df is not None and len(magephem_df) > 0:
-        try:
-            mdf = _magephem_index(magephem_df)
-            t_unix = mdf.index.astype("int64").to_numpy() / 1e9
-            t_sec  = event_dt.timestamp()
-            def _interp_col(col):
-                vals = pd.to_numeric(mdf[col], errors="coerce").to_numpy(dtype=float)
-                return float(np.interp(t_sec, t_unix, vals))
-            if all(c in mdf.columns for c in ("Bsc_gsm_0", "Bsc_gsm_1", "Bsc_gsm_2")):
-                bmag_nT = float(np.sqrt(
-                    _interp_col("Bsc_gsm_0")**2 +
-                    _interp_col("Bsc_gsm_1")**2 +
-                    _interp_col("Bsc_gsm_2")**2
-                ))
-            else:
-                j = mdf.index.get_indexer(pd.DatetimeIndex([event_dt]), method="nearest")[0]
-                bmag_nT = _get_bmag_from_magephem(mdf.loc[[mdf.index[j]]], b_prefix="Bsc_gsm").iloc[0]
-            fce_khz = _FCE_KHZ_PER_NT * bmag_nT
-            
-            f_max_khz = fmax_hz / 1e3
-            
-            if 0 < fce_khz <= f_max_khz:
-                line = ax_spec.axhline(fce_khz, color='white', linestyle="-", linewidth=2.0, alpha=0.9, 
-                                       label=r"$f_{ce} = {fce_khz:.2f} kHz$", zorder=10)
-                line.set_path_effects([Stroke(linewidth=3, foreground='black'), Normal()])
-                ax_spec.legend(loc="upper right", fontsize=8, framealpha=0.8)
-                print(f"  fce = {fce_khz:.2f} kHz (in band)")
-            else:
-                fce_note = f"(fce = {fce_khz:.1f} kHz, out of range)"
-                print(f"  fce = {fce_khz:.2f} kHz (out of band)")
-        except Exception as e:
-            pass
-    
     ax_spec.set_xlim(0, duration_s)
     ax_spec.set_ylim(0.01, fmax_hz / 1e3)
     ax_spec.set_xlabel("Time (s)")
